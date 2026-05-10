@@ -5,6 +5,7 @@ from langgraph.prebuilt import create_react_agent
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 from langchain_mcp_adapters.tools import load_mcp_tools
+from app.core.config import settings
 
 async def initialize_swiggy_agent(swiggy_oauth_token: str):
     """
@@ -16,7 +17,8 @@ async def initialize_swiggy_agent(swiggy_oauth_token: str):
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-pro", # Or gemini-2.5-flash for speed
         temperature=0,
-        max_retries=2
+        max_retries=2,
+        api_key=settings.GOOGLE_API_KEY
     )
 
     # 2. Configure the Swiggy Instamart MCP URL & Auth Headers

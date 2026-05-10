@@ -116,7 +116,32 @@ useEffect(() => {
     return () => clearInterval(intervalId);
   }, [fetchDashboardData, router]);
 
-  const triggerManualRestock = () => toast.info("Manual Restock Check Initiated...");
+  const triggerManualRestock = async () => {
+    if (!tenantId) return;
+    toast.info("Running full inventory audit...");
+
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/inventory/audit/${tenantId}`, {
+        method: 'POST'
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.triggered_count > 0) {
+          toast.success(`Audit found low stock! Triggered ${data.triggered_count} Swiggy orders.`);
+        } else {
+          toast.success("Audit complete. All stock levels are healthy.");
+        }
+        // Refresh the UI instantly
+        fetchDashboardData(tenantId);
+      } else {
+        toast.error("Audit failed. Check backend logs.");
+      }
+    } catch (error) {
+      toast.error("Failed to connect to the backend.");
+    }
+  };
+  
   const handleNavClick = (tab: string) => { setActiveTab(tab); setIsMobileMenuOpen(false); };
 
   // --- MANUAL ENTRY FIX ---

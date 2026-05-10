@@ -77,8 +77,8 @@ def execute_swiggy_restock(restaurant_id: str, ingredient_id: str, order_qty: fl
             restaurant_id=restaurant_id,
             type="INSTAMART_EXPENSE",
             amount=estimated_cost,
-            description=f"Auto-restock: {order_qty}{ingredient.unit} {ingredient.name} | Note: {agent_receipt}",
-            timestamp=datetime.utcnow()
+            reference_id=f"Order: {agent_receipt}" # Swapped 'description' to 'reference_id'
+            # We completely remove 'timestamp' because your DB auto-generates 'created_at'!
         )
         
         # Automatically update the local inventory stock back to healthy levels
