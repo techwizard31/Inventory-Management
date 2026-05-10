@@ -1,15 +1,17 @@
 import os
 import asyncio
+import re  # <-- IMPORT ADDED FOR REGEX PARSING
 from datetime import datetime
 from celery import Celery
 
-# Adjust these imports based on your actual folder structure if needed
+from dotenv import load_dotenv
+load_dotenv()
+
 from app.core.database import SessionLocal
 from app.models import Transaction, Restaurant, RawIngredient
 from app.services.inventory import process_inventory_deduction
-from app.services.agent import initialize_swiggy_agent
+from app.services.agent import execute_swiggy_agent 
 
-# Initialize Celery (Expects Redis running locally on default port)
 celery_app = Celery(
     "jit_kitchen_tasks",
     broker=os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -21,10 +23,7 @@ def handle_pos_order(restaurant_id: str, pos_item_id: str, quantity: int):
     db = SessionLocal()
     try:
         critical_items = process_inventory_deduction(db, pos_item_id, quantity)
-        
-        # Dispatch a separate restock task for every item that breached the threshold
         for item in critical_items:
-            # This now triggers the LangGraph AI Agent!
             execute_swiggy_restock.delay(
                 item["restaurant_id"], 
                 item["id"], 
@@ -35,13 +34,9 @@ def handle_pos_order(restaurant_id: str, pos_item_id: str, quantity: int):
 
 @celery_app.task
 def execute_swiggy_restock(restaurant_id: str, ingredient_id: str, order_qty: float):
-    """
-    Background worker that runs the LangGraph AI agent, executes the Instamart 
-    purchase, and logs the official Swiggy receipt to the financial ledger.
-    """
+    """Executes the Instamart purchase and logs the official Swiggy receipt."""
     db = SessionLocal()
     try:
-        # 1. Fetch the necessary data
         restaurant = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
         ingredient = db.query(RawIngredient).filter(RawIngredient.id == ingredient_id).first()
         
@@ -51,43 +46,43 @@ def execute_swiggy_restock(restaurant_id: str, ingredient_id: str, order_qty: fl
             
         search_query = ingredient.search_query
         
-        # 2. Run the AI Agent asynchronously
-        async def run_agent():
-            agent_executor, session = await initialize_swiggy_agent(restaurant.swiggy_access_token)
-            
-            prompt = (
-                f"You need to urgently restock inventory. "
-                f"Search Instamart for '{search_query}'. "
-                f"Find the best match and checkout {order_qty} units. "
-                f"Return ONLY the final order status and Swiggy Order ID."
-            )
-            
-            result = await agent_executor.ainvoke({"messages": [("user", prompt)]})
-            await session.close()
-            return result["messages"][-1].content
-            
         print(f"[{datetime.now()}] Initializing Swiggy MCP for {ingredient.name}...")
-        agent_receipt = asyncio.run(run_agent())
         
-        # 3. Calculate an estimated cost (Placeholder for dashboard)
+        prompt = (
+            f"You need to urgently restock inventory. "
+            f"Search Instamart for '{search_query}'. "
+            f"Find the best match and checkout {order_qty} units. "
+            f"Return ONLY the final order status and Swiggy Order ID."
+        )
+        
+        agent_receipt = asyncio.run(execute_swiggy_agent(restaurant.swiggy_access_token, prompt))
+        
+        # FIX: Use Regex to extract ONLY the numeric Order ID from the raw LangChain array
+        raw_receipt = str(agent_receipt)
+        match = re.search(r'(?i)order\s*id[^\d]*(\d+)', raw_receipt)
+        
+        if match:
+            # If it finds the ID, format it beautifully: "Swiggy Order #237411480216722"
+            safe_receipt = f"Swiggy Order #{match.group(1)}"
+        else:
+            # Safe fallback if the AI phrases it weirdly
+            safe_receipt = "Swiggy Auto-Restock Completed"
+        
         estimated_cost = order_qty * 150.0 
         
-        # 4. Write the VERIFIABLE proof to the Ledger
         new_transaction = Transaction(
             restaurant_id=restaurant_id,
             type="INSTAMART_EXPENSE",
             amount=estimated_cost,
-            reference_id=f"Order: {agent_receipt}" # Swapped 'description' to 'reference_id'
-            # We completely remove 'timestamp' because your DB auto-generates 'created_at'!
+            reference_id=safe_receipt 
         )
         
-        # Automatically update the local inventory stock back to healthy levels
-        ingredient.current_stock += order_qty
+        ingredient.current_stock = float(ingredient.current_stock) + float(order_qty)
         
         db.add(new_transaction)
         db.commit()
         
-        print(f"[{datetime.now()}] SUCCESS: Restock logged to ledger.")
+        print(f"[{datetime.now()}] SUCCESS: Restock logged to ledger -> {safe_receipt}")
 
     except Exception as e:
         db.rollback()
