@@ -104,71 +104,6 @@ def list_restaurants(db: Session = Depends(get_db)):
     restaurants = db.query(Restaurant).all()
     return [{"id": str(r.id), "name": r.name} for r in restaurants]
 
-class ManualStockPayload(BaseModel):
-    restaurant_id: str
-    name: str
-    quantity: float
-    unit: str
-    reorder_threshold: float
-    reorder_qty: float
-
-@app.post("/api/inventory/stock")
-def update_stock_manually(payload: ManualStockPayload, db: Session = Depends(get_db)):
-    """Allows the chef to manually add stock and define automation rules."""
-    ingredient = db.query(RawIngredient).filter(
-        RawIngredient.restaurant_id == payload.restaurant_id,
-        func.lower(RawIngredient.name) == payload.name.lower()
-    ).first()
-
-    if ingredient:
-        # If it exists, just add the new delivery to the current stock
-        ingredient.current_stock += payload.quantity
-        # Update the rules in case the chef wants to adjust them
-        ingredient.reorder_threshold = payload.reorder_threshold
-        ingredient.reorder_qty = payload.reorder_qty
-    else:
-        # If it's a brand new item, create it with the chef's specific rules
-        ingredient = RawIngredient(
-            restaurant_id=payload.restaurant_id,
-            name=payload.name,
-            current_stock=payload.quantity,
-            unit=payload.unit,
-            reorder_threshold=payload.reorder_threshold, 
-            reorder_qty=payload.reorder_qty,
-            search_query=f"{payload.name} {payload.unit}"
-        )
-        db.add(ingredient)
-    
-    db.commit()
-    return {"status": "success", "message": f"Added {payload.quantity}{payload.unit} of {payload.name}"}
-
-@app.post("/api/inventory/stock")
-def update_stock_manually(payload: ManualStockPayload, db: Session = Depends(get_db)):
-    """Allows the chef to manually add delivered stock (e.g., 50kg potatoes)."""
-    # Try to find existing ingredient
-    ingredient = db.query(RawIngredient).filter(
-        RawIngredient.restaurant_id == payload.restaurant_id,
-        func.lower(RawIngredient.name) == payload.name.lower()
-    ).first()
-
-    if ingredient:
-        # Add to existing stock
-        ingredient.current_stock += payload.quantity
-    else:
-        # Create a new raw material with some safe defaults for the AI to update later
-        ingredient = RawIngredient(
-            restaurant_id=payload.restaurant_id,
-            name=payload.name,
-            current_stock=payload.quantity,
-            unit=payload.unit,
-            reorder_threshold=1.0, 
-            reorder_qty=5.0,
-            search_query=f"{payload.name} {payload.unit}"
-        )
-        db.add(ingredient)
-    
-    db.commit()
-    return {"status": "success", "message": f"Added {payload.quantity}{payload.unit} of {payload.name}"}
 
 # Add a simple health check route
 @app.get("/health")
@@ -213,87 +148,6 @@ def get_dashboard_stats(restaurant_id: str, db: Session = Depends(get_db)):
         "critical_inventory": inventory_data
     }
     
-class AILocalIngestRequest(BaseModel):
-    restaurant_id: str
-    text: str
-
-@app.post("/api/inventory/ai-ingest")
-def ai_ingest_inventory(request: AILocalIngestRequest, db: Session = Depends(get_db)):
-    """
-    Takes natural language from the chef, parses it via Gemini, 
-    and injects it into the inventory and BOM tables.
-    """
-    # 1. Parse the text using Gemini
-    try:
-        parsed_data = parse_chef_instructions(request.text)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI Parsing failed: {str(e)}")
-
-    # 2. Generate a POS Item ID (Slugify the dish name)
-    # e.g., "Aloo Paratha" -> "ALOO_PARATHA"
-    pos_item_id = re.sub(r'[^A-Z0-9]', '_', parsed_data.dish_name.upper())
-
-    try:
-        inserted_ingredients = []
-        
-        # 3. Process each ingredient
-        for item in parsed_data.ingredients:
-            
-            # Check if ingredient already exists to prevent duplicates
-            existing_ingredient = db.query(RawIngredient).filter(
-                RawIngredient.restaurant_id == request.restaurant_id,
-                func.lower(RawIngredient.name) == item.name.lower()
-            ).first()
-
-            if existing_ingredient:
-                ingredient_id = existing_ingredient.id
-                # Optionally update existing stock here if desired
-            else:
-                # Create new ingredient
-                new_ingredient = RawIngredient(
-                    restaurant_id=request.restaurant_id,
-                    name=item.name,
-                    current_stock=item.current_stock,
-                    unit=item.unit,
-                    reorder_threshold=item.reorder_threshold,
-                    reorder_qty=item.reorder_qty,
-                    search_query=item.search_query
-                )
-                db.add(new_ingredient)
-                db.flush() # Flush to get the newly generated UUID
-                ingredient_id = new_ingredient.id
-                inserted_ingredients.append(item.name)
-
-            # 4. Create the Bill of Materials (Recipe mapping)
-            # Use a merge/upsert approach in case they are updating an existing recipe
-            existing_bom = db.query(RecipeBOM).filter(
-                RecipeBOM.pos_item_id == pos_item_id,
-                RecipeBOM.ingredient_id == ingredient_id
-            ).first()
-
-            if not existing_bom:
-                new_bom = RecipeBOM(
-                    pos_item_id=pos_item_id,
-                    ingredient_id=ingredient_id,
-                    burn_rate=item.burn_rate
-                )
-                db.add(new_bom)
-
-        # 5. Commit the entire transaction atomically
-        db.commit()
-        
-        return {
-            "status": "success", 
-            "dish": parsed_data.dish_name,
-            "pos_id": pos_item_id,
-            "ingredients_processed": len(parsed_data.ingredients),
-            "new_items_added": inserted_ingredients
-        }
-
-    except Exception as e:
-        db.rollback() # If anything fails, undo all database changes
-        raise HTTPException(status_code=500, detail=f"Database injection failed: {str(e)}")
-    
 class RestaurantCreate(BaseModel):
     name: str
 
@@ -310,26 +164,6 @@ def create_restaurant(payload: RestaurantCreate, db: Session = Depends(get_db)):
         "id": str(new_restaurant.id), 
         "name": new_restaurant.name
     }
-
-@app.get("/api/inventory/{restaurant_id}")
-def get_full_inventory(restaurant_id: str, db: Session = Depends(get_db)):
-    """Fetches the complete master inventory list for the dashboard."""
-    inventory = db.query(RawIngredient).filter(RawIngredient.restaurant_id == restaurant_id).all()
-    
-    # Return an empty list if the kitchen is brand new
-    if not inventory:
-        return []
-        
-    return [
-        {
-            "id": str(i.id), 
-            "name": i.name, 
-            "stock": float(i.current_stock), 
-            "unit": i.unit, 
-            "status": "Healthy" if float(i.current_stock) > float(i.reorder_threshold) else "Low"
-        } 
-        for i in inventory
-    ]
     
 class LoginPayload(BaseModel):
     restaurant_id: str
@@ -366,3 +200,150 @@ def get_ledger(restaurant_id: str, db: Session = Depends(get_db)):
         })
         
     return result
+
+@app.get("/api/recipes/{restaurant_id}")
+def get_recipes(restaurant_id: str, db: Session = Depends(get_db)):
+    """Fetches all menu items and their Bill of Materials (BOM)."""
+    # 1. Get all raw ingredients for this kitchen
+    ingredients = db.query(RawIngredient).filter(RawIngredient.restaurant_id == restaurant_id).all()
+    if not ingredients:
+        return []
+        
+    ingredient_map = {i.id: i for i in ingredients}
+    ingredient_ids = list(ingredient_map.keys())
+    
+    # 2. Find all recipe mappings that use these ingredients
+    boms = db.query(RecipeBOM).filter(RecipeBOM.ingredient_id.in_(ingredient_ids)).all()
+    
+    # 3. Group them by dish
+    recipes_dict = {}
+    for bom in boms:
+        # Convert PANEER_TIKKA back to "Paneer Tikka" for the UI
+        dish_name = bom.pos_item_id.replace("_", " ").title()
+        if dish_name not in recipes_dict:
+            recipes_dict[dish_name] = []
+            
+        ing = ingredient_map.get(bom.ingredient_id)
+        if ing:
+            recipes_dict[dish_name].append({
+                "name": ing.name,
+                "burn_rate": float(bom.burn_rate),
+                "unit": ing.unit
+            })
+        
+    return [{"dish_name": k, "ingredients": v} for k, v in recipes_dict.items()]
+
+class ManualStockPayload(BaseModel):
+    restaurant_id: str
+    name: str
+    quantity: float
+    unit: str
+    reorder_threshold: float
+    reorder_qty: float
+
+# 1. FIXED CRASH: Only ONE update_stock_manually function
+@app.post("/api/inventory/stock")
+def update_stock_manually(payload: ManualStockPayload, db: Session = Depends(get_db)):
+    """Allows the chef to manually add stock and define automation rules."""
+    ingredient = db.query(RawIngredient).filter(
+        RawIngredient.restaurant_id == payload.restaurant_id,
+        func.lower(RawIngredient.name) == payload.name.lower()
+    ).first()
+
+    if ingredient:
+        ingredient.current_stock += payload.quantity
+        ingredient.reorder_threshold = payload.reorder_threshold
+        ingredient.reorder_qty = payload.reorder_qty
+    else:
+        ingredient = RawIngredient(
+            restaurant_id=payload.restaurant_id,
+            name=payload.name,
+            current_stock=payload.quantity,
+            unit=payload.unit,
+            reorder_threshold=payload.reorder_threshold, 
+            reorder_qty=payload.reorder_qty,
+            search_query=f"{payload.name} {payload.unit}"
+        )
+        db.add(ingredient)
+    
+    db.commit()
+    return {"status": "success", "message": f"Added {payload.quantity}{payload.unit} of {payload.name}"}
+
+# 2. INVENTORY FETCH: Now includes threshold rules for quick-add UI
+@app.get("/api/inventory/{restaurant_id}")
+def get_full_inventory(restaurant_id: str, db: Session = Depends(get_db)):
+    """Fetches the complete master inventory list for the dashboard."""
+    inventory = db.query(RawIngredient).filter(RawIngredient.restaurant_id == restaurant_id).order_by(RawIngredient.name).all()
+    if not inventory:
+        return []
+    return [
+        {
+            "id": str(i.id), 
+            "name": i.name, 
+            "stock": float(i.current_stock), 
+            "unit": i.unit, 
+            "status": "Healthy" if float(i.current_stock) > float(i.reorder_threshold) else "Low",
+            "threshold": float(i.reorder_threshold),
+            "reorder_qty": float(i.reorder_qty)
+        } for i in inventory
+    ]
+
+class AILocalIngestRequest(BaseModel):
+    restaurant_id: str
+    text: str
+
+# 3. AI LOCKDOWN: Prevent AI from creating physical inventory
+@app.post("/api/inventory/ai-ingest")
+def ai_ingest_inventory(request: AILocalIngestRequest, db: Session = Depends(get_db)):
+    """Takes natural language, parses it, and maps it to EXISTING inventory."""
+    try:
+        parsed_data = parse_chef_instructions(request.text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Parsing failed: {str(e)}")
+
+    pos_item_id = re.sub(r'[^A-Z0-9]', '_', parsed_data.dish_name.upper())
+
+    try:
+        mapped_ingredients = []
+        for item in parsed_data.ingredients:
+            # Check if the ingredient physically exists in Master Inventory
+            existing_ingredient = db.query(RawIngredient).filter(
+                RawIngredient.restaurant_id == request.restaurant_id,
+                func.lower(RawIngredient.name) == item.name.lower()
+            ).first()
+
+            # If it does NOT exist, stop the entire process and throw an error
+            if not existing_ingredient:
+                db.rollback()
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Missing Inventory: '{item.name}'. Please add it to the Master Inventory manually before creating this recipe."
+                )
+
+            ingredient_id = existing_ingredient.id
+            mapped_ingredients.append(item.name)
+
+            # Map the recipe
+            existing_bom = db.query(RecipeBOM).filter(
+                RecipeBOM.pos_item_id == pos_item_id,
+                RecipeBOM.ingredient_id == ingredient_id
+            ).first()
+
+            if not existing_bom:
+                new_bom = RecipeBOM(pos_item_id=pos_item_id, ingredient_id=ingredient_id, burn_rate=item.burn_rate)
+                db.add(new_bom)
+
+        db.commit()
+        return {
+            "status": "success", 
+            "dish": parsed_data.dish_name,
+            "pos_id": pos_item_id,
+            "ingredients_processed": len(parsed_data.ingredients),
+            "new_items_added": mapped_ingredients
+        }
+
+    except HTTPException as he:
+        raise he # Pass the 400 missing inventory error up directly
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database injection failed: {str(e)}")

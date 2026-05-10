@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutDashboard, Package, History, TrendingUp, ShoppingCart, Menu, X, Mic } from 'lucide-react';
+import { LayoutDashboard, Package, History, TrendingUp, ShoppingCart, Menu, X, Mic, BookOpen, Settings } from 'lucide-react';
 import { DashboardCard } from '@/components/DashboardCard';
 import { OrderDensityChart } from '@/components/Analytics';
 import { toast } from 'react-toastify';
@@ -19,6 +19,10 @@ export default function Dashboard() {
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [restaurantName, setRestaurantName] = useState<string>("Loading Kitchen...");
   const [ledgerData, setLedgerData] = useState<any[]>([]);
+  const [recipes, setRecipes] = useState<any[]>([]);
+  const [quickAddQty, setQuickAddQty] = useState<Record<string, string>>({});
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ threshold: '', reorderQty: '' });
   // --- UI & Navigation State ---
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -49,9 +53,13 @@ export default function Dashboard() {
       const invRes = await fetch(`http://127.0.0.1:8000/api/inventory/${id}`);
       if (invRes.ok) setMasterInventory(await invRes.json());
       
-      // NEW: Fetch Ledger
       const ledgerRes = await fetch(`http://127.0.0.1:8000/api/ledger/${id}`);
       if (ledgerRes.ok) setLedgerData(await ledgerRes.json());
+
+      // NEW: Fetch Recipes
+      const recipeRes = await fetch(`http://127.0.0.1:8000/api/recipes/${id}`);
+      if (recipeRes.ok) setRecipes(await recipeRes.json());
+
     } catch (error) {
       console.error("Fetch error:", error);
     }
@@ -60,6 +68,30 @@ export default function Dashboard() {
   const handleLogout = () => {
     sessionStorage.clear();
     router.push('/');
+  };
+
+  const handleUpdateRules = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tenantId || !editingItem) return;
+
+    const res = await fetch('http://127.0.0.1:8000/api/inventory/stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        restaurant_id: tenantId,
+        name: editingItem.name,
+        quantity: 0, // <-- We are adding ZERO stock, just updating rules
+        unit: editingItem.unit,
+        reorder_threshold: parseFloat(editForm.threshold),
+        reorder_qty: parseFloat(editForm.reorderQty)
+      })
+    });
+
+    if (res.ok) {
+      toast.success(`Automation rules updated for ${editingItem.name}`);
+      setEditingItem(null); // Close the modal
+      fetchDashboardData(tenantId); // Refresh table
+    }
   };
 
   // 1. Fetch Identity and Start Polling
@@ -111,6 +143,30 @@ useEffect(() => {
       
       // INSTANT UI REFRESH
       fetchDashboardData(tenantId);
+    }
+  };
+
+  const handleQuickAdd = async (item: any) => {
+    const qty = parseFloat(quickAddQty[item.id]);
+    if (!qty || isNaN(qty) || !tenantId) return;
+
+    const res = await fetch('http://127.0.0.1:8000/api/inventory/stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        restaurant_id: tenantId,
+        name: item.name,
+        quantity: qty,
+        unit: item.unit,
+        reorder_threshold: item.threshold, // Pulled from the updated GET route
+        reorder_qty: item.reorder_qty      // Pulled from the updated GET route
+      })
+    });
+
+    if (res.ok) {
+      toast.success(`Added ${qty} ${item.unit} to ${item.name}`);
+      setQuickAddQty({...quickAddQty, [item.id]: ''}); // Clear the tiny box
+      fetchDashboardData(tenantId); // Instant refresh
     }
   };
 
@@ -224,14 +280,46 @@ useEffect(() => {
                   <th className="px-4 py-3">Item Name</th>
                   <th className="px-4 py-3">Current Stock</th>
                   <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Quick Restock</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {masterInventory.map((item, idx) => (
-                  <tr key={idx}>
+                  <tr key={idx} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium">{item.name}</td>
                     <td className="px-4 py-3">{item.stock} {item.unit}</td>
                     <td className={`px-4 py-3 font-bold ${item.status === 'Low' ? 'text-red-600' : 'text-green-600'}`}>{item.status}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* The Edit Rules Button */}
+                        <button 
+                          onClick={() => {
+                            setEditingItem(item);
+                            setEditForm({ threshold: item.threshold.toString(), reorderQty: item.reorder_qty.toString() });
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          title="Edit Automation Rules"
+                        >
+                          <Settings size={18} />
+                        </button>
+                        
+                        {/* The Quick Add Box */}
+                        <input 
+                          type="number" 
+                          step="0.1"
+                          placeholder="+ Qty" 
+                          value={quickAddQty[item.id] || ''} 
+                          onChange={(e) => setQuickAddQty({...quickAddQty, [item.id]: e.target.value})}
+                          className="w-20 p-1.5 border border-slate-300 rounded text-xs outline-none focus:border-blue-500" 
+                        />
+                        <button 
+                          onClick={() => handleQuickAdd(item)}
+                          className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold transition-colors"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -274,6 +362,38 @@ useEffect(() => {
               </button>
             </div>
           </div>
+          {/* EDIT RULES MODAL */}
+          {editingItem && (
+            <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                  <h3 className="font-bold text-slate-900">Automation Rules: {editingItem.name}</h3>
+                  <button onClick={() => setEditingItem(null)} className="text-slate-400 hover:text-slate-700">
+                    <X size={20} />
+                  </button>
+                </div>
+                
+                <form onSubmit={handleUpdateRules} className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Trigger Alert At ({editingItem.unit})</label>
+                    <p className="text-xs text-slate-500 mb-2">When stock falls below this number, Swiggy will be triggered.</p>
+                    <input type="number" step="0.1" required value={editForm.threshold} onChange={e => setEditForm({...editForm, threshold: e.target.value})} className="w-full p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500" />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Auto-Buy Quantity ({editingItem.unit})</label>
+                    <p className="text-xs text-slate-500 mb-2">How much should the AI buy when the alert triggers?</p>
+                    <input type="number" step="0.1" required value={editForm.reorderQty} onChange={e => setEditForm({...editForm, reorderQty: e.target.value})} className="w-full p-3 border border-slate-300 rounded-lg outline-none focus:border-blue-500" />
+                  </div>
+                  
+                  <div className="flex gap-3 pt-4">
+                    <button type="button" onClick={() => setEditingItem(null)} className="flex-1 py-2.5 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50">Cancel</button>
+                    <button type="submit" className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 shadow-lg shadow-blue-500/20">Save Rules</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -316,6 +436,38 @@ useEffect(() => {
       );
     }
 
+    if (activeTab === 'recipes') {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {recipes.length === 0 ? (
+            <div className="col-span-full p-8 text-center bg-white border border-slate-200 rounded-xl text-slate-500 shadow-sm">
+              No recipes ingested yet. Use the AI dictation on the Inventory tab!
+            </div>
+          ) : (
+            recipes.map((recipe, idx) => (
+              <div key={idx} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                <div className="p-4 border-b border-slate-200 bg-slate-50 font-bold text-slate-900">
+                  {recipe.dish_name}
+                </div>
+                <div className="p-4">
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Bill of Materials</h4>
+                  <ul className="space-y-2">
+                    {recipe.ingredients.map((ing: any, i: number) => (
+                      <li key={i} className="flex justify-between items-center text-sm text-slate-700">
+                        <span>{ing.name}</span>
+                        <span className="font-medium text-slate-900 bg-slate-100 px-2 py-1 rounded">
+                          {ing.burn_rate} {ing.unit}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      );
+    }
     // Default Dashboard view (Stats & Chart) remains the same
     return (
       <>
@@ -350,6 +502,9 @@ useEffect(() => {
           </button>
           <button onClick={() => handleNavClick('ledger')} className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${activeTab === 'ledger' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
             <History size={20} /> <span>Ledger</span>
+          </button>
+          <button onClick={() => handleNavClick('recipes')} className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${activeTab === 'recipes' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+            <BookOpen size={20} /> <span>Recipes</span>
           </button>
         </nav>
         <nav className="space-y-2 mt-16 md:mt-0 flex-1">
