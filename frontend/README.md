@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-
-## Getting Started
-
-First, run the development server:
-
+# 🍳 JIT Kitchen Controller — Frontend
+ 
+> Real-time dashboard for restaurant owners to monitor financials, dictate AI-powered recipes, and autonomously manage their Swiggy Instamart supply chain.
+ 
+---
+ 
+## 🛠 Tech Stack
+ 
+| Tool | Purpose |
+|------|---------|
+| **Next.js 16** (App Router) | Core framework |
+| **Tailwind CSS** | Styling |
+| **Lucide React** | Icons |
+| **Fetch API** | Backend communication |
+ 
+---
+ 
+## ✅ Prerequisites
+ 
+- **Node.js** v18 or higher
+- **npm** (or yarn / pnpm)
+- The **backend server** must be running at `http://127.0.0.1:8000`
+---
+ 
+## 🚀 Getting Started
+ 
+### 1. Install Dependencies
+ 
+```bash
+cd frontend
+npm install
+```
+ 
+### 2. Start the Dev Server
+ 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+ 
+Then open **http://localhost:3000** in your browser.
+ 
+---
+ 
+## ✨ Features & How to Use Them
+ 
+### 🔐 Secure Onboarding (OAuth 2.0)
+Register a new kitchen from the home screen. You'll be redirected to the **Swiggy Partner Portal** to authenticate and grant AI access — no passwords are shared.
+ 
+---
+ 
+### 🎙 AI Recipe Dictation
+Go to the **Inventory** tab and use the dictation box to speak or type a recipe in plain English:
+ 
+```
+"Paneer Tikka uses 200g paneer and 50g yogurt"
+```
+ 
+The backend AI parses this automatically and updates the **Bill of Materials (BOM)** in the database.
+ 
+---
+ 
+### ⚙️ Threshold Management
+Click the **gear icon** next to any inventory item to configure:
+- **Trigger Alert** level — when to raise a low-stock warning
+- **Auto-Buy Quantity** — how much to reorder automatically
+---
+ 
+### 🔍 Instant Inventory Audits
+Click **Run Audit** on the Dashboard to manually sweep your inventory. This triggers the background AI Agent to immediately restock any items that are running low.
+ 
+---
+ 
+## 📡 Backend Dependency
+ 
+This frontend is stateless on its own — all data, AI logic, and Swiggy integration live in the FastAPI backend. Make sure it's running before you start the frontend.
