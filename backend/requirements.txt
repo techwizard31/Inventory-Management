@@ -1,0 +1,22 @@
+# Web Framework & Server
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# Database (SQLAlchemy + PostgreSQL)
+sqlalchemy
+psycopg2-binary
+
+# Background Workers (Celery & Redis)
+celery
+redis
+
+# HTTP Client (For Swiggy OAuth)
+httpx
+
+# AI & Model Context Protocol (MCP)
+langchain-google-genai
+langchain-mcp-adapters
+langgraph
+mcp

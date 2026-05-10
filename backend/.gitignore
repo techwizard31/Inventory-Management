@@ -1,0 +1,35 @@
+# Environments
+.env
+.venv/
+venv/
+env/
+ENV/
+
+# Python compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+*.pid
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Testing / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
