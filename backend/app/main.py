@@ -330,3 +330,39 @@ def get_full_inventory(restaurant_id: str, db: Session = Depends(get_db)):
         } 
         for i in inventory
     ]
+    
+class LoginPayload(BaseModel):
+    restaurant_id: str
+
+@app.post("/api/restaurants/login")
+def login_restaurant(payload: LoginPayload, db: Session = Depends(get_db)):
+    """Secure login requiring the exact Kitchen ID."""
+    restaurant = db.query(Restaurant).filter(Restaurant.id == payload.restaurant_id).first()
+    if not restaurant:
+        raise HTTPException(status_code=404, detail="Invalid Kitchen ID")
+    return {"id": str(restaurant.id), "name": restaurant.name}
+
+@app.get("/api/ledger/{restaurant_id}")
+def get_ledger(restaurant_id: str, db: Session = Depends(get_db)):
+    """Fetches the transaction history for the Ledger page safely."""
+    
+    # Sort by ID descending to safely get the newest transactions first
+    transactions = db.query(Transaction).filter(
+        Transaction.restaurant_id == restaurant_id
+    ).order_by(Transaction.id.desc()).all()
+    
+    result = []
+    for t in transactions:
+        # Safely parse the timestamp whether it is a string, datetime, or missing
+        raw_time = str(getattr(t, 'timestamp', 'N/A'))
+        clean_time = raw_time.split(".")[0] if "." in raw_time else raw_time
+        
+        result.append({
+            "id": str(t.id),
+            "type": str(t.type),
+            "amount": float(t.amount or 0.0),
+            "description": str(t.description or "System Transaction"),
+            "timestamp": clean_time
+        })
+        
+    return result

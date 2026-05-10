@@ -18,7 +18,7 @@ export default function Dashboard() {
   // --- Dynamic Identity State ---
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [restaurantName, setRestaurantName] = useState<string>("Loading Kitchen...");
-
+  const [ledgerData, setLedgerData] = useState<any[]>([]);
   // --- UI & Navigation State ---
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -41,23 +41,31 @@ export default function Dashboard() {
   const [recentIngestions, setRecentIngestions] = useState<any[]>([]);
   const [isListening, setIsListening] = useState(false);
 
-   const fetchDashboardData = useCallback(async (id: string) => {
+  const fetchDashboardData = useCallback(async (id: string) => {
     try {
-      // Notice we are passing the ID in the URL now!
       const statsRes = await fetch(`http://127.0.0.1:8000/api/dashboard/stats?restaurant_id=${id}`);
       if (statsRes.ok) setStats(await statsRes.json());
 
       const invRes = await fetch(`http://127.0.0.1:8000/api/inventory/${id}`);
       if (invRes.ok) setMasterInventory(await invRes.json());
+      
+      // NEW: Fetch Ledger
+      const ledgerRes = await fetch(`http://127.0.0.1:8000/api/ledger/${id}`);
+      if (ledgerRes.ok) setLedgerData(await ledgerRes.json());
     } catch (error) {
       console.error("Fetch error:", error);
     }
   }, []);
 
+  const handleLogout = () => {
+    sessionStorage.clear();
+    router.push('/');
+  };
+
   // 1. Fetch Identity and Start Polling
 useEffect(() => {
-    const storedId = localStorage.getItem('tenant_id');
-    const storedName = localStorage.getItem('tenant_name');
+    const storedId = sessionStorage.getItem('tenant_id');
+    const storedName = sessionStorage.getItem('tenant_name');
     
     // Redirect to login if they bypassed it
     if (!storedId) {
@@ -270,7 +278,43 @@ useEffect(() => {
       );
     }
     
-    if (activeTab === 'ledger') return <div className="p-6 bg-white rounded-xl">Financial Ledger module...</div>;
+    if (activeTab === 'ledger') {
+      return (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+          <div className="p-4 border-b border-slate-200 font-semibold text-slate-900">Transaction History</div>
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Time</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Description</th>
+                <th className="px-4 py-3">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {ledgerData.length === 0 ? (
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-500">No transactions yet.</td></tr>
+              ) : (
+                ledgerData.map((t, idx) => (
+                  <tr key={idx}>
+                    <td className="px-4 py-3 text-xs">{t.timestamp}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <span className={`px-2 py-1 rounded text-xs ${t.type.includes('INCOME') ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {t.type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">{t.description}</td>
+                    <td className={`px-4 py-3 font-bold ${t.type.includes('INCOME') ? 'text-green-600' : 'text-red-600'}`}>
+                      {t.type.includes('INCOME') ? '+' : '-'}₹{t.amount}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
 
     // Default Dashboard view (Stats & Chart) remains the same
     return (
@@ -308,6 +352,20 @@ useEffect(() => {
             <History size={20} /> <span>Ledger</span>
           </button>
         </nav>
+        <nav className="space-y-2 mt-16 md:mt-0 flex-1">
+          {/* ... your existing 3 tab buttons ... */}
+        </nav>
+        
+        {/* NEW: Bottom Section of Sidebar */}
+        <div className="absolute bottom-6 left-6 right-6">
+          <div className="bg-slate-800 p-3 rounded-lg mb-4">
+            <p className="text-xs text-slate-400 mb-1">Your Kitchen ID (Login Key):</p>
+            <p className="text-xs font-mono text-blue-400 break-all select-all">{tenantId}</p>
+          </div>
+          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 p-3 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors">
+            Logout
+          </button>
+        </div>
       </aside>
 
       {/* Main Content Area */}

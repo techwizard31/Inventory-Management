@@ -49,8 +49,8 @@ export default function SwiggyCallback() {
           
           // 2. CREATE THE PERSISTENT LOCAL SESSION
           // This is what makes the Dashboard dynamic!
-          localStorage.setItem('tenant_id', data.restaurant_id);
-          localStorage.setItem('tenant_name', data.restaurant_name);
+          sessionStorage.setItem('tenant_id', data.restaurant_id);
+          sessionStorage.setItem('tenant_name', data.restaurant_name);
           
           // 3. Redirect to the Dashboard
           setTimeout(() => router.push('/dashboard'), 2000);
