@@ -2,7 +2,7 @@ import requests
 import uuid
 
 # Replace this with your exact Kitchen ID from the dashboard
-RESTAURANT_ID = "cdb6c69a-83ba-4a01-a99a-9ffa3f504b55" 
+RESTAURANT_ID = "2d67b85c-a13e-4e7c-b3a6-314b8c536aa4" 
 
 # The exact POS ID you generated via the AI Dictation
 POS_ITEM_ID = "PANEER_TIKKA" 
